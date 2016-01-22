@@ -1,10 +1,8 @@
 Db = require 'db'
 Event = require 'event'
 Photo = require 'photo'
-Plugin = require 'plugin'
+App = require 'app'
 Timer = require 'timer'
-
-exports.getTitle = -> # we're asking for _title in renderSettings
 
 exports.onUpgrade = !->
 	# no next, but repeat is set? schedule new round..
@@ -12,7 +10,7 @@ exports.onUpgrade = !->
 	#	scheduleNewRound repeat
 
 	#if (open = Db.shared.get(1, 'open'))
-	#	time = 0|(Date.now()*.001)
+	#	time = 0|App.time()
 	#	if open < time
 	#		Db.shared.remove 1, 'open'
 
@@ -40,7 +38,7 @@ oldUpgrade = !->
 				Db.shared.remove 'likes', id
 
 		# now all personal stuff as well
-		for uid in Plugin.userIds()
+		for uid in App.userIds()
 			if (commentNr = Db.personal(uid).get('comments', 'default'))?
 				Db.personal(uid).set 'comments', 'r1', commentNr
 				Db.personal(uid).remove 'comments', 'default'
@@ -81,20 +79,20 @@ exports.onInstall = exports.onConfig = (_config) !->
 		scheduleNewRound newRepeat
 
 	if !Db.shared.get('maxId') and _config
-		newRound() # initial round fir manual group app addition
+		newRound _config.theme # initial round
 
 scheduleNewRound = (repeat) !->
 	return if !repeat
 
-	dayStart = (Math.floor(Plugin.time()/86400) + repeat) * 86400 + ((new Date).getTimezoneOffset() * 60)
+	dayStart = (Math.floor(App.time()/86400) + repeat) * 86400 + ((new Date).getTimezoneOffset() * 60)
 	Timer.cancel 'newRound'
 	t = 0|(dayStart + (10*3600) + Math.floor(Math.random()*(12*3600)))
 	Db.shared.set 'next', t
-	if (t - Plugin.time()) > 3600
-		Timer.set (t-Plugin.time())*1000, 'newRound'
+	if (t - App.time()) > 3600
+		Timer.set (t-App.time())*1000, 'newRound'
 		log 'new round scheduled', t
 	else
-		log 'next round too soon', t, Plugin.time()
+		log 'next round too soon', t, App.time()
 
 exports.client_newRound = exports.newRound = newRound = (title) !->
 	# close current round (closes comments)
@@ -104,7 +102,7 @@ exports.client_newRound = exports.newRound = newRound = (title) !->
 
 	log 'newRound', maxId
 
-	time = 0|(Date.now()*.001)
+	time = 0|App.time()
 	open = (Db.shared.get('deadline')||120)*60
 
 	roundObj =
@@ -113,7 +111,7 @@ exports.client_newRound = exports.newRound = newRound = (title) !->
 		selfies: {}
 	if title
 		roundObj.title = title
-		roundObj.by = Plugin.userId()
+		roundObj.by = App.userId()
 
 	Db.shared.set maxId, roundObj
 
@@ -124,7 +122,7 @@ exports.client_newRound = exports.newRound = newRound = (title) !->
 
 	Event.create
 		text: "Selfie deadline in #{open/60} minutes!"
-		sender: Plugin.userId()
+		sender: App.userId()
 
 	# no new round when this is automatic, and the last two had no submissions...
 	if !title? and maxId>2
@@ -140,7 +138,7 @@ exports.client_newRound = exports.newRound = newRound = (title) !->
 exports.check = !->
 	round = Db.shared.ref (Db.shared.get 'maxId')
 	f = []
-	for id in Plugin.userIds()
+	for id in App.userIds()
 		if not round.get('selfies', id)
 			f.push id
 
@@ -155,16 +153,16 @@ exports.close = !->
 	Db.shared.remove maxId, 'open'
 
 exports.onPhoto = (info) !->
-	log 'got photo', JSON.stringify(info), Plugin.userId()
+	log 'got photo', JSON.stringify(info), App.userId()
 	maxId = Db.shared.get 'maxId'
 	round = Db.shared.ref maxId
-	round.set 'selfies', Plugin.userId(), info
+	round.set 'selfies', App.userId(), info
 	Event.create
-		text: "Selfie by #{Plugin.userName()}"
-		sender: Plugin.userId()
+		text: "Selfie by #{App.userName()}"
+		sender: App.userId()
 
 exports.client_remove = (roundId, userId) !->
-	return if userId != Plugin.userId() and !Plugin.userIsAdmin()
+	return if userId != App.userId() and !App.userIsAdmin()
 
 	Photo.remove(key) if key = Db.shared.get(roundId, 'selfies', userId, 'key')
 	Db.shared.remove(roundId, 'selfies', userId)
